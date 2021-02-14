@@ -1,0 +1,581 @@
+---
+title: "Air France"
+author: "Team 5 - Jasmijn Van Hulsen, Jorge Delgado, Mayte Maya, Neha Gupta and  William Tsuji"
+date: "17/12/2020"
+output: html_document
+---
+
+```{r setup, echo=FALSE, message= FALSE, warning=FALSE}
+
+library(readxl)
+air_france <- read_excel("Air France Case Spreadsheet Supplement.xls",sheet=2)
+View(air_france)
+
+```
+
+# **Problem statement:**
+
+> Increase SEM strategy for the US 
+
+```{r massaging, echo=FALSE, message= FALSE, warning=FALSE}
+
+# Making sure our data_frames are uniform 
+new_af <- as.data.frame(air_france)
+
+# Subsetting USA
+us_airf <- new_af[ which(new_af$`Publisher Name` == "Google - US" | 
+                           new_af$`Publisher Name` == "MSN - US" |
+                           new_af$`Publisher Name` == "Yahoo - US" |
+                           new_af$`Publisher Name` == "Overture - US") , ]
+
+# Subsetting branded keywords from unbranded and store in brand_unbrand
+brand_unbrand <- grepl(pattern = "air france|airfrance", x = us_airf$Keyword)
+
+# Creating new binary column for brand_unbrand -> TRUE = Branded, FALSE = Unbranded 
+us_airf$`Branded Unbranded KW` <- factor(brand_unbrand, levels = c("FALSE", "TRUE"), 
+                                         labels = c("Unbranded", "Branded"))
+
+# Creating Publisher Name binary:
+us_airf$`Publisher Name` <- as.factor(us_airf$`Publisher Name`)
+```
+
+
+## In order to evaluate all Publishers equally, we have divided 3 KPIs by the total costs.
+
+```{r massaging_1, echo=FALSE, message= FALSE, warning=FALSE}
+us_airf$`Cost per Booking` <- us_airf$`Total Volume of Bookings` / us_airf$`Total Cost`
+
+# Changing the NaN and Inf in 0 -> 0 Tot. Vol / 0 Costs is still 0 Amount per booking
+us_airf$`Cost per Booking` <- as.numeric(gsub("NaN", 0, us_airf$`Cost per Booking`))
+us_airf$`Cost per Booking` <- as.numeric(gsub("Inf", 0, us_airf$`Cost per Booking`))
+
+# Creating ROA: Amount / Total Cost
+us_airf$`Return on Advertisement` <- us_airf$`Amount` / us_airf$`Total Cost` 
+
+# Changing the NaN and Inf in 0 -> 0 Amount / 0 Costs is still 0 ROA
+us_airf$`Return on Advertisement` <- as.numeric(gsub("NaN", 0, us_airf$`Return on Advertisement`))
+us_airf$`Return on Advertisement` <- as.numeric(gsub("Inf", 0, us_airf$`Return on Advertisement`))
+
+# Creating Cost per Impression: Impressions / Total Cost
+us_airf$`Cost per Impression` <- us_airf$`Impressions` / us_airf$`Total Cost`
+
+# Changing the NaN in 0 -> 0 Impressions / 0 Costs is still 0 Cost per Impressions
+us_airf$`Cost per Impression` <- as.numeric(gsub("NaN", 0, us_airf$`Cost per Impression`))
+
+# Cleaning up us_airf with columns not used - store in clean_df
+clean_df <- us_airf[-c(1,3,5:11)]
+
+# Moving Brand column next to Keyword column for overview - store in my_afus
+my_afus <- clean_df[ , c(1,15,2,3:14,16:18)]
+
+# Checking if there are NAs in my_afus 
+colSums(is.na(my_afus))
+
+summary(my_afus$`Publisher Name`)
+summary(my_afus$`Branded Unbranded KW`)
+```
+
+# **Descriptive Statistics**
+
+Checking the summary of all the normalized variables of the data set.
+
+``` {r normalize Data, echo= FALSE, warning= FALSE, message=FALSE}
+# creating a UDF for min-max normalization
+afus_normalize <- function(x){
+  afus_min <- min(x, na.rm = T)
+  afus_max <- max(x, na.rm = T)
+  min_max <- (x - afus_min)/(afus_max - afus_min)
+  return(min_max)
+} # closing afus_normalize
+
+# Normalize all KPIs fom our formulas
+my_afus$av_cpc_norm <- afus_normalize(x=my_afus$`Avg. Cost per Click`)
+my_afus$engine_ctr_norm <- afus_normalize(x=my_afus$`Engine Click Thru %`)
+my_afus$avg_pos_norm <- afus_normalize(x=my_afus$`Avg. Pos.`)
+my_afus$trans_conv_norm <- afus_normalize(x=my_afus$`Trans. Conv. %`)
+my_afus$tot_cost_trans_norm <- afus_normalize(x=my_afus$`Total Cost/ Trans.`)
+my_afus$search_engine_bid_norm <- afus_normalize(x=my_afus$`Search Engine Bid`)
+my_afus$cost_booking_norm <- afus_normalize(x=my_afus$`Cost per Booking`)
+my_afus$roa_norm <- afus_normalize(x=my_afus$`Return on Advertisement`)
+my_afus$cost_impression_norm <- afus_normalize(x=my_afus$`Cost per Impression`)
+
+summary(my_afus[19:27])
+```
+
+# **CREATING 2 CAMPAIGN GOALS**
+
+```{r new col, echo= FALSE, warning= FALSE, message=FALSE}
+
+my_afus$`Conversion Score` <- c()
+my_afus$`Awareness Score` <- c()
+
+# Create scaler to see how many rows for 
+rowsinafus<- nrow(my_afus)
+
+```
+
+## **Conversion Campaign**
+
+Formula for conversion campaigns:
+  
+* 10% av. cpc 
+* 10% Engine CTR 
+* 15% trans conv % 
+* 15% total costs/trans 
+* 20% cost per booking 
+* 30% ROA
+
+>Summary output of the conversion score variable
+
+```{r conversion campaign, echo= FALSE, warning= FALSE, message=FALSE}
+
+for (i in 1:rowsinafus) {
+  my_afus$`Conversion Score`[i] <- 
+    0.10*my_afus$av_cpc_norm [i] +
+    0.10*my_afus$engine_ctr_norm[i] +
+    0.15*my_afus$trans_conv_norm[i] +
+    0.15*my_afus$tot_cost_trans_norm[i] +
+    0.20*my_afus$cost_booking_norm[i] +
+    0.30*my_afus$roa_norm[i]
+} #closing the i loop
+
+# Check the mean for Conversion Score 
+summary(my_afus$`Conversion Score`)
+
+# Create new column for Conversion Success
+# for loop to decide Conversion Success Based on mean
+for (i in 1:rowsinafus) {
+  if (my_afus$`Conversion Score`[i] >= mean(my_afus$`Conversion Score`)) {
+    my_afus$`Conversion Success`[i] <- 1
+  } else {
+    my_afus$`Conversion Success`[i] <- 0
+  } 
+} # closing i-loop 
+
+# Turning Conversion Success into a binary factor
+my_afus$`Conversion Success` <- as.factor(my_afus$`Conversion Success`)
+
+```
+
+## **Awareness Campaign**
+
+Formula for awarness campaigns:
+  
+* 10% SEB 
+* 20% av cpc 
+* 15% Engine CTR 
+* 30% cost/impressions 
+* 25% av. pos.
+
+Summary output of the awareness score variable
+
+```{r awareness campaign, echo= FALSE, warning= FALSE, message=FALSE}
+for (i in 1:rowsinafus) {
+  my_afus$`Awareness Score`[i] <- 
+    0.10*my_afus$search_engine_bid_norm[i] +
+    0.20*my_afus$av_cpc_norm[i] +
+    0.15*my_afus$engine_ctr_norm[i] +
+    0.30*my_afus$cost_impression_norm[i] +
+    0.25*my_afus$avg_pos_norm[i]
+} #closing the i loop
+
+# Check the 3rd Q for Awereness Score
+summary(my_afus$`Awareness Score`)
+
+# Create new column for Awareness Success (success = 1, failure = 0)
+# for loop to decide Awereness Success based on mean
+for (i in 1:rowsinafus) {
+  if (my_afus$`Awareness Score`[i] >= mean(my_afus$`Awareness Score`)) {
+    my_afus$`Awareness Success`[i] <- 1
+  } else {
+    my_afus$`Awareness Success`[i] <- 0
+  } 
+} # closing i-loop 
+
+# Turning Awareness Success into a binary factor
+my_afus$`Awareness Success` <- as.factor(my_afus$`Awareness Success`)
+```
+
+# **Predictive Statistics**
+
+We have used **Stratified Sampling** for the predictive analysis
+
+```{r predictive statistics, echo= FALSE, warning= FALSE, message=FALSE}
+# Open library for Stratified 
+library(splitstackshape)
+
+# Because of sharing the code (gives us similar results)
+set.seed(1)
+
+# Stratified for Publishers and Branded/Unbranded KWs 
+training_testing <- stratified(as.data.frame(my_afus),
+                               group = 1:2, size = 0.8,
+                               bothSets = T)
+
+# Calling training_afus and testing_afus
+training_afus <- training_testing$SAMP1
+testing_afus <- training_testing$SAMP2
+```
+
+> Calling table of Publisher Name from training_afus
+
+```{r table-1, echo= FALSE, warning= FALSE, message=FALSE}
+table(training_afus$`Publisher Name`)
+```
+
+> Calling table of Publisher Name from testing_afus
+
+```{r table-2, echo= FALSE, warning= FALSE, message=FALSE}
+table(testing_afus$`Publisher Name`)
+```
+
+> Calling table of Branded Unbranded KW from training_afus
+
+```{r table-3, echo= FALSE, warning= FALSE, message=FALSE}
+table(training_afus$`Branded Unbranded KW`)
+```
+
+> Calling table of Branded Unbranded KW from testing_afus
+
+```{r table-4, echo= FALSE, warning= FALSE, message=FALSE}
+table(testing_afus$`Branded Unbranded KW`)
+```
+
+## **Creating Logistic Regression**
+We created 4 models of each campaign and run the logistic regression on the models
+
+### **Conclusion from Conversion Campaign**
+```{r logistic regression conversion, echo= FALSE, warning= FALSE, message=FALSE}
+
+# Calling Library for Log 
+library(class)
+# MODEL 1c: Publ, Brand/Unbrand, Publ*Brand/Unbrand  -> BASELINE/Intercept = GOOGLE and UNBRANDED KWs
+conv_logit_all <- glm(`Conversion Success` ~ `Publisher Name`+ `Branded Unbranded KW` + `Publisher Name`*`Branded Unbranded KW`, 
+                      data = training_afus, family = "binomial")
+
+# MODEL 2c: Publ  -> BASELINE/Intercept = GOOGLE and UNBRANDED KWs
+conv_logit_pub <- glm(`Conversion Success` ~ `Publisher Name`, 
+                      data = training_afus, family = "binomial")
+
+# MODEL 3c: Brand/Unbrand  -> BASELINE/Intercept = GOOGLE and UNBRANDED KWs
+conv_logit_brand <- glm(`Conversion Success` ~ `Branded Unbranded KW`, 
+                        data = training_afus, family = "binomial")
+
+# MODEL 4c: Publ*Brand/Unbrand  -> BASELINE/Intercept = GOOGLE and UNBRANDED KWs
+conv_logit_p_b <- glm(`Conversion Success` ~ `Publisher Name` + `Branded Unbranded KW`, 
+                      data = training_afus, family = "binomial")
+```
+
+> **Summary of the model-1c in conversion**
+
+```{r summary-1, echo= FALSE, warning= FALSE, message=FALSE}
+summary(conv_logit_all)
+                      
+```
+
+Model 1c - all: branded Overture followed by Google          - AIC: 3233.5
+
+
+> **Summary of the model-2c in conversion**
+
+```{r summary-2, echo= FALSE, warning= FALSE, message=FALSE}
+summary(conv_logit_pub)
+```
+
+Model 2c - publ: Google performs best                        - AIC: 3242.7
+
+
+> **Summary of the model-3c in conversion**
+
+```{r summary-3, echo= FALSE, warning= FALSE, message=FALSE}
+summary(conv_logit_brand)
+```
+
+Model 3c - brand: unbranded perform best when alone          - AIC: 3772.6
+
+
+> **Summary of the model-4c in conversion**
+
+```{r summary-4, echo= FALSE, warning= FALSE, message=FALSE}
+summary(conv_logit_p_b)
+
+```
+
+Model 4c - p_b: unbranded Google performs best               - AIC: 3238.9
+
+
+**It was found that Model 1c has the lowest AIC, so we will be using that model.**
+
+```{r logistic regression awareness, echo= FALSE, warning= FALSE, message=FALSE}
+
+# MODEL 1a: Publ, Brand/Unbrand, Publ*Brand/Unbrand  -> BASELINE/Intercept = GOOGLE and UNBRANDED KWs
+aware_logit_all <- glm(`Awareness Success` ~ `Publisher Name`+ `Branded Unbranded KW` + `Publisher Name`*`Branded Unbranded KW`, 
+                       data = training_afus, family = "binomial")
+
+# MODEL 2a: Publ  -> BASELINE/Intercept = GOOGLE and UNBRANDED KWs
+aware_logit_pub <- glm(`Awareness Success` ~ `Publisher Name`, 
+                       data = training_afus, family = "binomial")
+
+# MODEL 3a: Brand/Unbrand  -> BASELINE/Intercept = GOOGLE and UNBRANDED KWs
+aware_logit_brand <- glm(`Awareness Success` ~ `Branded Unbranded KW`, 
+                         data = training_afus, family = "binomial")
+
+# MODEL 4a: Publ*Brand/Unbrand  -> BASELINE/Intercept = GOOGLE and UNBRANDED KWs
+aware_logit_p_b <- glm(`Awareness Success` ~ `Publisher Name` + `Branded Unbranded KW`, 
+                       data = training_afus, family = "binomial")
+```
+
+### **Conclusion from Awareness Campaign**
+
+> **Summary of the model-1a in awareness**
+
+```{r summary-5, echo= FALSE, warning= FALSE, message=FALSE}
+summary(aware_logit_all)
+```
+
+Model 1a - all: Unbranded Google works best                     - AIC: 3167.9
+
+> **Summary of the model-2a in awareness**
+
+```{r summary-6, echo= FALSE, warning= FALSE, message=FALSE}
+summary(aware_logit_pub)
+```
+
+Model 2a - publ: Google works best                              - AIC: 3180.8
+
+> **Summary of the model-3a in awareness**
+
+```{r summary-7, echo= FALSE, warning= FALSE, message=FALSE}
+summary(aware_logit_brand)
+```
+
+Model 3a - brand: unbranded works best                          - AIC: 3808.0
+
+> **Summary of the model-4a in awareness**
+
+```{r summary-8, echo= FALSE, warning= FALSE, message=FALSE}
+summary(aware_logit_p_b)
+
+```
+
+Model 4a - p_b: Unbranded Google works best                     - AIC: 3170.5
+
+
+**It was found that Model 1a has the lowest AIC, so we will be using that model.**
+
+> **CLASSIFICATION MODELS CONV**
+
+***Train confusion matrix CONVERSION***
+
+```{r predict logit, echo=FALSE, warning=FALSE, message=FALSE}
+library(caret)
+conv_predict_logit_train <- predict(conv_logit_all, training_afus, type= "response")
+confusionMatrix(data= as.factor(as.numeric(conv_predict_logit_train > 0.5)),
+                reference= training_afus$`Conversion Success`)
+```
+
+**Test confusion matrix**
+
+```{r summary-10, echo=FALSE, warning=FALSE, message=FALSE}
+conv_predict_logit_test <- predict(conv_logit_all, testing_afus, type= "response")
+confusionMatrix(data= as.factor(as.numeric(conv_predict_logit_test > 0.5)),
+                reference= testing_afus$`Conversion Success`)
+```
+Test Accuracy = 0.6479
+
+***Train ROC AUC***
+
+```{r ROC AUC , echo=FALSE, warning=FALSE, message=FALSE}
+# Add library for ROC AUC & tree 
+library(ROCR)
+library(rpart)
+library(rpart.plot)
+
+# Train ROC AUC
+conv_predict_logit_train_ROC <- predict(conv_logit_all, training_afus, type = "response")
+conv_prediction_logit_train_ROC <- prediction(conv_predict_logit_train_ROC, training_afus$`Conversion Success`)
+conv_perf_logit_train_ROC <- performance(conv_prediction_logit_train_ROC, "tpr", "fpr")
+
+# Plot ROC AUC Train 
+plot(conv_perf_logit_train_ROC, col= "red")
+```
+
+
+***Test ROC AUC***
+
+```{r Test ROC AUC , echo=FALSE, warning=FALSE, message=FALSE}
+conv_predict_logit_test_ROC <- predict(conv_logit_all, testing_afus, type = "response")
+conv_prediction_logit_test_ROC <- prediction(conv_predict_logit_test_ROC,testing_afus$`Conversion Success`)
+conv_perf_logit_test_ROC <- performance(conv_prediction_logit_test_ROC, "tpr", "fpr")
+
+#Plot ROC AUC Test
+plot(conv_perf_logit_test_ROC, col= "red")
+```
+
+***Train GINI tree***
+
+```{r Conv Tree , echo=FALSE, warning=FALSE, message=FALSE}
+
+conv_tree <- rpart(`Conversion Success` ~ `Avg. Cost per Click` + `Engine Click Thru %` + `Trans. Conv. %` +
+                     `Total Cost/ Trans.` + `Cost per Booking` + `Return on Advertisement`,
+                   data = training_afus, 
+                   method = "class", cp = 0.008)
+
+#Optimal cp Train 
+plotcp(conv_tree)
+```
+
+***Plot GINI Tree Train***
+
+```{r Plot GINI  Tree , echo=FALSE, warning=FALSE, message=FALSE}
+rpart.plot(conv_tree, type = 1, extra = 1, 
+           box.palette = c("dark blue", "dark red"), border.col = 0, 
+           col = "white", branch.lty = 1, yesno=2)
+
+```
+
+***Test GINI Tree***
+
+```{r Test  GINI  Tree , echo=FALSE, warning=FALSE, message=FALSE}
+
+# Test GINI tree 
+conv_tree_predict <- predict(conv_logit_all, testing_afus, type = "response")
+conv_tree_prediction <- prediction(conv_tree_predict, 
+                                   testing_afus$`Conversion Success`)
+
+conv_tree_performance <- performance(conv_tree_prediction, "tpr", "fpr")
+conv_tree_test <- rpart(`Conversion Success` ~ `Avg. Cost per Click` + `Engine Click Thru %` + `Trans. Conv. %` +
+                          `Total Cost/ Trans.` + `Cost per Booking` + `Return on Advertisement`,  
+                        data = testing_afus,  
+                        method = "class", cp = 0.019) 
+
+# Check optimal cp Test
+plotcp(conv_tree_test)
+
+```
+
+***Plot GINI tree Test***
+
+```{r Test  GINI  Tree 1, echo=FALSE, warning=FALSE, message=FALSE}
+
+rpart.plot(conv_tree_test, type = 1, extra = 1, 
+           box.palette = c("dark blue", "dark red"), border.col = 0, 
+           col = "white", branch.lty = 1, yesno=2)
+```
+
+***Compare 2 classification models which to use***
+
+```{r Classification Models , echo=FALSE, warning=FALSE, message=FALSE}
+plot(conv_perf_logit_test_ROC, col = "black", lty = 2, lwd = 2)
+plot(conv_tree_performance, col = "red", lty = 3, lwd = 3, add = TRUE)
+```
+
+> ***CLASSIFICATION MODELS AWARE***
+
+***Train confusion matrix AWARENESS***
+
+```{r Train confusion matrix, echo=FALSE, warning=FALSE, message=FALSE}
+aware_predict_logit_train <- predict(aware_logit_all, training_afus, type= "response")
+confusionMatrix(data= as.factor(as.numeric(aware_predict_logit_train > 0.5)),
+                reference= training_afus$`Awareness Success`)
+```
+
+***Test confusion matrix***
+
+```{r Test  confusion matrix , echo=FALSE, warning=FALSE, message=FALSE}
+aware_predict_logit_test <- predict(aware_logit_all, testing_afus, type= "response")
+confusionMatrix(data= as.factor(as.numeric(aware_predict_logit_test > 0.5)),
+                reference= testing_afus$`Awareness Success`)
+```
+***TESTING ACCURACY = 0.6609**
+
+***Train ROC AUC AWARENESS***
+
+```{r Train ROC AUC Awar , echo=FALSE, warning=FALSE, message=FALSE}
+aware_predict_logit_train_ROC <- predict(aware_logit_all, training_afus, type = "response")
+aware_prediction_logit_train_ROC <- prediction(aware_predict_logit_train_ROC, training_afus$`Awareness Success`)
+aware_perf_logit_train_ROC <- performance(aware_prediction_logit_train_ROC, "tpr", "fpr")
+
+# Plot ROC AUC Train 
+plot(aware_perf_logit_train_ROC, col= "red")
+```
+
+***Test ROC AUC***
+
+```{r Test , echo=FALSE, warning=FALSE, message=FALSE}
+aware_predict_logit_test_ROC <- predict(aware_logit_all, testing_afus, type = "response")
+aware_prediction_logit_test_ROC <- prediction(aware_predict_logit_test_ROC,testing_afus$`Awareness Success`)
+aware_perf_logit_test_ROC <- performance(aware_prediction_logit_test_ROC, "tpr", "fpr")
+
+# Plot ROC AUC Test 
+plot(aware_perf_logit_test_ROC, col= "red")
+```
+
+***Train GINI tree AWARENESS***
+
+```{r Train GINI TRee Awareness , echo=FALSE, warning=FALSE, message=FALSE}
+aware_tree <- rpart(`Awareness Success` ~ `Search Engine Bid`+ `Avg. Cost per Click` +
+                      `Engine Click Thru %`+ `Cost per Impression` + `Avg. Pos.`, 
+                    data = training_afus, 
+                    method = "class", cp = 0.022)
+
+# Check optimal cp Train
+plotcp(aware_tree)
+```
+
+***Plot GINI tree Train***
+
+```{r  GINI TRee Train , echo=FALSE, warning=FALSE, message=FALSE}
+rpart.plot(aware_tree, type = 1, extra = 1, 
+           box.palette = c("dark blue", "dark red"), border.col = 0, 
+           col = "white", branch.lty = 1, yesno=2, ycompress = F)
+```
+
+***Aware Tree Test***
+
+```{r Aware Tree predict, echo=FALSE, warning=FALSE, message=FALSE}
+aware_tree_predict <- predict(aware_logit_all, testing_afus, type = "response")
+aware_tree_prediction <- prediction(aware_tree_predict, 
+                                    testing_afus$`Awareness Success`)
+
+aware_tree_performance <- performance(aware_tree_prediction, "tpr", "fpr")
+aware_tree_test <- rpart(`Awareness Success` ~ `Search Engine Bid`+ `Avg. Cost per Click` +
+                           `Engine Click Thru %`+ `Cost per Impression` + `Avg. Pos.`,  
+                         data = testing_afus,  
+                         method = "class", cp = 0.015) 
+
+# Check optimal cp Test
+
+plotcp(aware_tree_test)
+
+
+rpart.plot(aware_tree_test, type = 1, extra = 1, 
+           box.palette = c("dark red", "dark blue"), border.col = 0, 
+           col = "white", branch.lty = 1, yesno=2)
+
+```
+
+***Compare 2 classification models which to use***
+
+```{r 2 Classification Models, echo=FALSE, warning=FALSE, message=FALSE}
+plot(aware_perf_logit_test_ROC, col = "black", lty = 2, lwd = 2)
+plot(aware_tree_performance, col = "red", lty = 3, lwd = 3, add = TRUE)
+```
+
+> ***Visualize***
+
+***Histogram to show cost per publisher to show base of assumption***
+
+```{r Cost per publisher, echo=FALSE, warning=FALSE, message=FALSE}
+# Open library for ggplot and plotly 
+library(ggplot2)
+library(plotly)
+
+# Histogram to show cost per publisher to show base of assumption
+publ_hist <- ggplot(my_afus, aes(x=`Publisher Name`, y=`Total Cost`)) + 
+  stat_summary(geom="bar", fill="dark blue")
+
+# Make plot interactive 
+ggplotly(publ_hist)
+```
+
